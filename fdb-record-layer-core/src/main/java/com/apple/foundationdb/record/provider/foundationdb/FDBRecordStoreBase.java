@@ -1030,6 +1030,7 @@ public interface FDBRecordStoreBase<M extends Message> extends RecordMetaDataPro
      * @param scanProperties skip, limit and other scan properties
      * @param orphanBehavior how the iteration process should respond in the face of entries in the index for which
      *    there is no associated record
+     * @param indexEntryReturnPolicy the policy deciding which index entries to include in the returned payload
      * @return a cursor that return records pointed to by the index
      */
     @Nonnull
@@ -1039,10 +1040,11 @@ public interface FDBRecordStoreBase<M extends Message> extends RecordMetaDataPro
                                                                    @Nonnull final KeyExpression commonPrimaryKey,
                                                                    @Nullable byte[] continuation,
                                                                    @Nonnull ScanProperties scanProperties,
-                                                                   @Nonnull final IndexOrphanBehavior orphanBehavior) {
+                                                                   @Nonnull final IndexOrphanBehavior orphanBehavior,
+                                                                   @Nonnull final IndexEntryReturnPolicy indexEntryReturnPolicy) {
 
         final Index index = getRecordMetaData().getIndex(indexName);
-        return scanIndexRemoteFetch(index, scanBounds, commonPrimaryKey, continuation, scanProperties, orphanBehavior);
+        return scanIndexRemoteFetch(index, scanBounds, commonPrimaryKey, continuation, scanProperties, orphanBehavior, indexEntryReturnPolicy);
     }
 
     /**
@@ -1054,6 +1056,7 @@ public interface FDBRecordStoreBase<M extends Message> extends RecordMetaDataPro
      * @param scanProperties skip, limit and other scan properties
      * @param orphanBehavior how the iteration process should respond in the face of entries in the index for which
      *    there is no associated record
+     * @param indexEntryReturnPolicy the policy deciding which index entries to include in the returned payload
      * @return a cursor that return records pointed to by the index
      */
     @Nonnull
@@ -1063,7 +1066,8 @@ public interface FDBRecordStoreBase<M extends Message> extends RecordMetaDataPro
                                                            @Nonnull KeyExpression commonPrimaryKey,
                                                            @Nullable byte[] continuation,
                                                            @Nonnull ScanProperties scanProperties,
-                                                           @Nonnull IndexOrphanBehavior orphanBehavior);
+                                                           @Nonnull IndexOrphanBehavior orphanBehavior,
+                                                           @Nonnull final IndexEntryReturnPolicy indexEntryReturnPolicy);
 
     /**
      * Given a cursor that iterates over entries in an index, attempts to fetch the associated records for those entries.
@@ -1127,7 +1131,7 @@ public interface FDBRecordStoreBase<M extends Message> extends RecordMetaDataPro
         final Tuple tuple = Tuple.from(values);
         final TupleRange range = TupleRange.allOf(tuple);
         final IndexScanBounds bounds = new IndexScanRange(IndexScanType.BY_VALUE, range);
-        return scanIndexRemoteFetch(indexName, bounds, primaryKey, null, ScanProperties.FORWARD_SCAN, IndexOrphanBehavior.ERROR);
+        return scanIndexRemoteFetch(indexName, bounds, primaryKey, null, ScanProperties.FORWARD_SCAN, IndexOrphanBehavior.ERROR, IndexEntryReturnPolicy.ALL);
     }
 
     /**

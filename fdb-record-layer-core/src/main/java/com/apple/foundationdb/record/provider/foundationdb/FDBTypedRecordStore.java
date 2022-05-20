@@ -177,8 +177,9 @@ public class FDBTypedRecordStore<M extends Message> implements FDBRecordStoreBas
                                                                   @Nonnull final KeyExpression commonPrimaryKey,
                                                                   @Nullable byte[] continuation,
                                                                   @Nonnull ScanProperties scanProperties,
-                                                                  @Nonnull final IndexOrphanBehavior orphanBehavior) {
-        return untypedStore.scanIndexRemoteFetchInternal(index, scanBounds, commonPrimaryKey, continuation, typedSerializer, scanProperties, orphanBehavior);
+                                                                  @Nonnull final IndexOrphanBehavior orphanBehavior,
+                                                                  @Nonnull final IndexEntryReturnPolicy indexEntryReturnPolicy) {
+        return untypedStore.scanIndexRemoteFetchInternal(index, scanBounds, commonPrimaryKey, continuation, typedSerializer, scanProperties, orphanBehavior, indexEntryReturnPolicy);
     }
 
     @Nonnull

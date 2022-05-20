@@ -58,6 +58,7 @@ import com.apple.foundationdb.record.provider.foundationdb.FDBIndexedRawRecord;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecord;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStoreBase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoreTimer;
+import com.apple.foundationdb.record.provider.foundationdb.IndexEntryReturnPolicy;
 import com.apple.foundationdb.record.provider.foundationdb.IndexMaintainer;
 import com.apple.foundationdb.record.provider.foundationdb.IndexMaintainerState;
 import com.apple.foundationdb.record.provider.foundationdb.IndexMaintenanceFilter;
@@ -147,15 +148,17 @@ public abstract class StandardIndexMaintainer extends IndexMaintainer {
      */
     @SuppressWarnings("PMD.CloseResource")
     protected RecordCursor<FDBIndexedRawRecord> scanRemoteFetchByValue(@Nonnull final IndexScanBounds scanBounds,
-                                                             @Nullable final byte[] continuation,
-                                                             @Nonnull final ScanProperties scanProperties,
-                                                             @Nonnull final KeyExpression commonPrimaryKey) {
+                                                                       @Nullable final byte[] continuation,
+                                                                       @Nonnull final ScanProperties scanProperties,
+                                                                       @Nonnull final KeyExpression commonPrimaryKey,
+                                                                       @Nonnull final IndexEntryReturnPolicy indexEntryReturnPolicy) {
         if (!scanBounds.getScanType().equals(IndexScanType.BY_VALUE) || (!(scanBounds instanceof IndexScanRange))) {
-            throw new RecordCoreArgumentException("scanRemoteFetch can only be used with VALUE index scan type and Range Scan");
+            throw new RecordCoreArgumentException("scanRemoteFetchByValue can only be used with VALUE index scan type and Range Scan");
         }
         IndexScanRange scanRange = (IndexScanRange)scanBounds;
         Tuple mapper = createRemoteFetchMapper(commonPrimaryKey);
         final RecordCursor<KeyValue> keyValues = IndexPrefetchRangeKeyValueCursor.Builder.newBuilder(state.indexSubspace, mapper.pack())
+                .setIndexEntryReturnPolicy(indexEntryReturnPolicy)
                 .setContext(state.context)
                 .setRange(scanRange.getScanRange())
                 .setContinuation(continuation)
@@ -189,7 +192,10 @@ public abstract class StandardIndexMaintainer extends IndexMaintainer {
 
     @Nonnull
     protected FDBIndexedRawRecord unpackRemoteFetchRecord(@Nonnull MappedKeyValue indexKeyValue) {
-        IndexEntry indexEntry = new IndexEntry(state.index, unpackKey(state.indexSubspace, indexKeyValue), decodeValue(indexKeyValue.getValue()));
+        IndexEntry indexEntry = null;
+        if (indexKeyValue.getKey().length != 0) {
+            indexEntry = new IndexEntry(state.index, unpackKey(state.indexSubspace, indexKeyValue), decodeValue(indexKeyValue.getValue()));
+        }
         return new FDBIndexedRawRecord(indexEntry, indexKeyValue);
     }
 
