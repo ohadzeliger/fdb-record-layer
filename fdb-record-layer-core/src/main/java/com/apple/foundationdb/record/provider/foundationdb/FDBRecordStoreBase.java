@@ -964,6 +964,7 @@ public interface FDBRecordStoreBase<M extends Message> extends RecordMetaDataPro
      *
      * @param indexName the name of the index
      * @param fetchMethod the fetch method to use when getting records from the index
+     * @param indexEntryReturnPolicy the policy deciding which index entries to include in the returned payload
      * @param scanBounds the range of the index to scan, has to be a IndexScanRange
      * @param commonPrimaryKey the common primary key for the records that would be returned, only required for USE_REMOTE_FETCH and USE_REMOTE_FETCH_WITH_FALLBACK
      * @param continuation any continuation from a previous scan
@@ -975,6 +976,7 @@ public interface FDBRecordStoreBase<M extends Message> extends RecordMetaDataPro
     @Nonnull
     default RecordCursor<FDBIndexedRecord<M>> scanIndexRecords(@Nonnull final String indexName,
                                                                @Nonnull final IndexFetchMethod fetchMethod,
+                                                               @Nonnull final IndexEntryReturnPolicy indexEntryReturnPolicy,
                                                                @Nonnull final IndexScanBounds scanBounds,
                                                                @Nullable final KeyExpression commonPrimaryKey,
                                                                @Nullable byte[] continuation,
@@ -993,11 +995,11 @@ public interface FDBRecordStoreBase<M extends Message> extends RecordMetaDataPro
                 return scanIndexRecords(indexName, scanRange.getScanType(), scanRange.getScanRange(), continuation, orphanBehavior, scanProperties);
 
             case USE_REMOTE_FETCH:
-                return scanIndexRemoteFetch(indexName, scanBounds, commonPrimaryKey, continuation, scanProperties, orphanBehavior);
+                return scanIndexRemoteFetch(indexName, scanBounds, commonPrimaryKey, continuation, scanProperties, orphanBehavior, indexEntryReturnPolicy);
 
             case USE_REMOTE_FETCH_WITH_FALLBACK:
                 try {
-                    final RecordCursor<FDBIndexedRecord<M>> remoteFetchCursor = scanIndexRemoteFetch(indexName, scanBounds, commonPrimaryKey, continuation, scanProperties, orphanBehavior);
+                    final RecordCursor<FDBIndexedRecord<M>> remoteFetchCursor = scanIndexRemoteFetch(indexName, scanBounds, commonPrimaryKey, continuation, scanProperties, orphanBehavior, indexEntryReturnPolicy);
                     return new FallbackCursor<>(remoteFetchCursor,
                             lastSuccessfulResult -> remoteFetchFallbackFrom(indexName, scanRange.getScanType(), scanRange.getScanRange(), continuation, orphanBehavior, scanProperties, lastSuccessfulResult));
                 } catch (UnsupportedRemoteFetchIndexException ex) {
