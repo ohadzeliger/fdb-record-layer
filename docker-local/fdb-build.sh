@@ -84,12 +84,20 @@ fi
 
 echo "-----------------------------------------------------"
 echo "Building local FDB from source. This may take a while"
+if [ ! -e ${FDB_BUILD_HOME} ]
+then
+  mkdir ${FDB_BUILD_HOME}
+fi
 cd ${FDB_BUILD_HOME}
 cmake -D OPENSSL_ROOT_DIR=/opt/brew/opt/openssl -G Ninja ${FOUNDATIONDB_HOME}
 ninja
 
 echo "-----------------------------------------------------"
 echo "Copying library artifacts"
+if [ ! -e ${RECORD_LAYER_HOME}/run ]
+then
+  mkdir ${RECORD_LAYER_HOME}/run
+fi
 cp ${FDB_BUILD_HOME}/packages/bin/fdbcli ${RECORD_LAYER_HOME}/run/fdbcli_${FDB_VERSION}-${OKTETO_USERNAME}
 cp ${FDB_BUILD_HOME}/packages/lib/libfdb_c.dylib ${RECORD_LAYER_HOME}/run/libfdb_c_${FDB_VERSION}-${OKTETO_USERNAME}.dylib
 
