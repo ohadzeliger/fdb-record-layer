@@ -65,6 +65,7 @@ import com.apple.foundationdb.record.query.plan.plans.RecordQueryUnorderedDistin
 import com.apple.foundationdb.record.query.plan.plans.RecordQueryUnorderedPrimaryKeyDistinctPlan;
 import com.apple.foundationdb.record.query.plan.plans.RecordQueryUnorderedUnionPlan;
 import com.apple.foundationdb.record.query.plan.plans.RecordQueryUpdatePlan;
+import com.apple.foundationdb.record.query.plan.plans.pushdown.PredicatePushdownPlan;
 import com.apple.foundationdb.record.query.plan.sorting.RecordQuerySortPlan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -313,6 +314,12 @@ public class PrimaryKeyProperty implements PlanProperty<Optional<List<Value>>> {
         public Optional<List<Value>> visitScanPlan(@Nonnull final RecordQueryScanPlan scanPlan) {
             return Optional.of(ScalarTranslationVisitor.translateKeyExpression(scanPlan.getCommonPrimaryKey(),
                     Objects.requireNonNull(scanPlan.getResultType().getInnerType())));
+        }
+
+        @Nonnull
+        @Override
+        public Optional<List<Value>> visitPredicatePushdownPlan(@Nonnull final PredicatePushdownPlan element) {
+            return Optional.empty();
         }
 
         @Nonnull

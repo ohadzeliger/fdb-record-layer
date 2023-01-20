@@ -74,6 +74,7 @@ import com.apple.foundationdb.record.query.plan.plans.RecordQueryUnorderedDistin
 import com.apple.foundationdb.record.query.plan.plans.RecordQueryUnorderedPrimaryKeyDistinctPlan;
 import com.apple.foundationdb.record.query.plan.plans.RecordQueryUnorderedUnionPlan;
 import com.apple.foundationdb.record.query.plan.plans.RecordQueryUpdatePlan;
+import com.apple.foundationdb.record.query.plan.plans.pushdown.PredicatePushdownPlan;
 import com.apple.foundationdb.record.query.plan.sorting.RecordQuerySortPlan;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
@@ -281,6 +282,12 @@ public class OrderingProperty implements PlanProperty<Ordering> {
             return indexPlan.getMatchCandidateMaybe()
                     .map(matchCandidate -> matchCandidate.computeOrderingFromScanComparisons(scanComparisons, indexPlan.isReverse(), indexPlan.isStrictlySorted()))
                     .orElse(Ordering.emptyOrder());
+        }
+
+        @Nonnull
+        @Override
+        public Ordering visitPredicatePushdownPlan(@Nonnull final PredicatePushdownPlan plan) {
+            return Ordering.emptyOrder();
         }
 
         @Nonnull
