@@ -28,34 +28,34 @@ import java.util.List;
 /**
  * A numeric expression that contains an operator adn 2 operands.
  */
-public class PushdownNumericExpression {
+public class PushdownNumericExpression implements PushdownValue {
     @Nonnull
     private final PushdownNumericOperator operator;
     @Nonnull
-    private final List<? extends PushdownValue<?>> operands;
+    private final List<? extends PushdownValue> operands;
 
-    private PushdownNumericExpression(@Nonnull final PushdownNumericOperator operator, @Nonnull final List<? extends PushdownValue<?>> operands) {
+    private PushdownNumericExpression(@Nonnull final PushdownNumericOperator operator, @Nonnull final List<? extends PushdownValue> operands) {
         this.operator = operator;
         this.operands = operands;
     }
 
-    public static <T> PushdownNumericExpression plus(PushdownValue<T> op1, PushdownValue<T> op2) {
+    public static PushdownNumericExpression plus(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withOperator(PushdownNumericOperator.PLUS).withOperand(op1).withOperand(op2).build();
     }
 
-    public static <T> PushdownNumericExpression minus(PushdownValue<T> op1, PushdownValue<T> op2) {
+    public static PushdownNumericExpression minus(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withOperator(PushdownNumericOperator.MINUS).withOperand(op1).withOperand(op2).build();
     }
 
-    public static <T> PushdownNumericExpression times(PushdownValue<T> op1, PushdownValue<T> op2) {
+    public static PushdownNumericExpression times(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withOperator(PushdownNumericOperator.TIMES).withOperand(op1).withOperand(op2).build();
     }
 
-    public static <T> PushdownNumericExpression divide(PushdownValue<T> op1, PushdownValue<T> op2) {
+    public static PushdownNumericExpression divide(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withOperator(PushdownNumericOperator.DIVIDE).withOperand(op1).withOperand(op2).build();
     }
 
-    public static <T> PushdownNumericExpression mod(PushdownValue<T> op1, PushdownValue<T> op2) {
+    public static PushdownNumericExpression mod(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withOperator(PushdownNumericOperator.MOD).withOperand(op1).withOperand(op2).build();
     }
 
@@ -69,13 +69,13 @@ public class PushdownNumericExpression {
     }
 
     @Nonnull
-    public List<? extends PushdownValue<?>> getOperands() {
+    public List<? extends PushdownValue> getOperands() {
         return operands;
     }
 
     public static class Builder {
         private PushdownNumericOperator operator;
-        private final List<PushdownValue<?>> operands = new ArrayList<>(2);
+        private final List<PushdownValue> operands = new ArrayList<>(2);
 
         public PushdownNumericExpression build() {
             if (operator == null) {
@@ -93,7 +93,7 @@ public class PushdownNumericExpression {
             return this;
         }
 
-        public Builder withOperand(PushdownValue<?> operand) {
+        public Builder withOperand(PushdownValue operand) {
             operands.add(operand);
             return this;
         }

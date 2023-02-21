@@ -51,7 +51,7 @@ public class PushdownBooleanExpression implements PushdownPredicate {
         return newBuilder().withOperator(PushdownBooleanOperator.OR).withOperand(op1).withOperand(op2).build();
     }
 
-    public static PushdownBooleanExpression not(PushdownPredicate op1, PushdownPredicate op2) {
+    public static PushdownBooleanExpression not(PushdownPredicate op1) {
         return newBuilder().withOperator(PushdownBooleanOperator.NOT).withOperand(op1).build();
     }
 

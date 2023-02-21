@@ -22,7 +22,7 @@ package com.apple.foundationdb.record.query.plan.plans.pushdown;
 
 import javax.annotation.Nonnull;
 
-public class PushdownFieldValue implements PushdownValue<PushdownFieldDesignator> {
+public class PushdownFieldValue implements PushdownValue {
     @Nonnull
     private final PushdownFieldDesignator value;
 
@@ -36,11 +36,5 @@ public class PushdownFieldValue implements PushdownValue<PushdownFieldDesignator
 
     public static PushdownFieldValue of(PushdownFieldDesignator.FieldType fieldType, int enumerator) {
         return new PushdownFieldValue(PushdownFieldDesignator.of(fieldType, enumerator));
-    }
-
-    @Nonnull
-    @Override
-    public PushdownFieldDesignator getValue() {
-        return value;
     }
 }

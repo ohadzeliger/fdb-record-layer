@@ -28,46 +28,46 @@ import java.util.List;
 /**
  * An expression that contains a comparison: operator and operands.
  */
-public class PushdownPredicateExpression {
+public class PushdownPredicateExpression implements PushdownPredicate {
     @Nonnull
     private final PushdownComparison comparison;
     @Nonnull
-    private final List<PushdownValue<?>> operands;
+    private final List<PushdownValue> operands;
 
-    private PushdownPredicateExpression(@Nonnull final PushdownComparison comparison, @Nonnull final List<PushdownValue<?>> operands) {
+    private PushdownPredicateExpression(@Nonnull final PushdownComparison comparison, @Nonnull final List<PushdownValue> operands) {
         this.comparison = comparison;
         this.operands = operands;
     }
 
-    public static PushdownPredicateExpression equals(PushdownValue<?> op1, PushdownValue<?> op2) {
+    public static PushdownPredicateExpression equals(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withComparison(PushdownComparison.EQUALS).withOperand(op1).withOperand(op2).build();
     }
 
-    public static PushdownPredicateExpression notEquals(PushdownValue<?> op1, PushdownValue<?> op2) {
+    public static PushdownPredicateExpression notEquals(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withComparison(PushdownComparison.NOT_EQUALS).withOperand(op1).withOperand(op2).build();
     }
 
-    public static PushdownPredicateExpression greaterThanOrEquals(PushdownValue<?> op1, PushdownValue<?> op2) {
+    public static PushdownPredicateExpression greaterThanOrEquals(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withComparison(PushdownComparison.GTE).withOperand(op1).withOperand(op2).build();
     }
 
-    public static PushdownPredicateExpression greaterThan(PushdownValue<?> op1, PushdownValue<?> op2) {
+    public static PushdownPredicateExpression greaterThan(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withComparison(PushdownComparison.GT).withOperand(op1).withOperand(op2).build();
     }
 
-    public static PushdownPredicateExpression lessThanOrEquals(PushdownValue<?> op1, PushdownValue<?> op2) {
+    public static PushdownPredicateExpression lessThanOrEquals(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withComparison(PushdownComparison.LTE).withOperand(op1).withOperand(op2).build();
     }
 
-    public static PushdownPredicateExpression lessThan(PushdownValue<?> op1, PushdownValue<?> op2) {
+    public static PushdownPredicateExpression lessThan(PushdownValue op1, PushdownValue op2) {
         return newBuilder().withComparison(PushdownComparison.LT).withOperand(op1).withOperand(op2).build();
     }
 
-    public static PushdownPredicateExpression isNull(PushdownValue<?> op1) {
+    public static PushdownPredicateExpression isNull(PushdownValue op1) {
         return newBuilder().withComparison(PushdownComparison.IS_NULL).withOperand(op1).build();
     }
 
-    public static PushdownPredicateExpression isNotNull(PushdownValue<?> op1) {
+    public static PushdownPredicateExpression isNotNull(PushdownValue op1) {
         return newBuilder().withComparison(PushdownComparison.IS_NOT_NULL).withOperand(op1).build();
     }
 
@@ -81,13 +81,13 @@ public class PushdownPredicateExpression {
     }
 
     @Nonnull
-    public List<PushdownValue<?>> getOperands() {
+    public List<PushdownValue> getOperands() {
         return operands;
     }
 
     public static class Builder {
         private PushdownComparison comparison;
-        private final List<PushdownValue<?>> operands = new ArrayList<>(2);
+        private final List<PushdownValue> operands = new ArrayList<>(2);
 
         public PushdownPredicateExpression build() {
             if (comparison == null) {
@@ -106,7 +106,7 @@ public class PushdownPredicateExpression {
             return this;
         }
 
-        public Builder withOperand(PushdownValue<?> operand) {
+        public Builder withOperand(PushdownValue operand) {
             operands.add(operand);
             return this;
         }

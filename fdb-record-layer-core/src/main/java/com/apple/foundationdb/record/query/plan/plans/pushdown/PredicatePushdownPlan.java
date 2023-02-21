@@ -51,7 +51,7 @@ import java.util.Set;
 @API(API.Status.EXPERIMENTAL)
 public class PredicatePushdownPlan implements RecordQueryPlanWithNoChildren {
     public static final Logger LOGGER = LoggerFactory.getLogger(PredicatePushdownPlan.class);
-    protected static final ObjectPlanHash BASE_HASH = new ObjectPlanHash("Record-Query-Index-Plan");
+    protected static final ObjectPlanHash BASE_HASH = new ObjectPlanHash("Predicate-Pushdown-Plan");
 
     @Nonnull
     protected final String indexName;

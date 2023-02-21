@@ -24,6 +24,7 @@ import javax.annotation.Nonnull;
 
 /**
  * Designator of a field value: what part of the record (key/value) and its enumerator within the list.
+ * TODO: Inline into the FieldValue
  */
 public class PushdownFieldDesignator {
     public enum FieldType {KEY, VALUE}

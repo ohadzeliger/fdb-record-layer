@@ -22,7 +22,5 @@ package com.apple.foundationdb.record.query.plan.plans.pushdown;
 
 import javax.annotation.Nonnull;
 
-public interface PushdownValue<T> {
-    @Nonnull
-    T getValue();
+public interface PushdownValue {
 }
