@@ -45,6 +45,7 @@ public class OnlineIndexScrubber implements AutoCloseable {
     @Nonnull private final IndexingCommon common;
     @Nonnull private final FDBDatabaseRunner runner;
     @Nonnull private final ScrubbingPolicy scrubbingPolicy;
+    @Nonnull private final Index index;
 
     /**
      * The type of problem to scan for.
@@ -66,6 +67,7 @@ public class OnlineIndexScrubber implements AutoCloseable {
 
         this.runner = runner;
         this.scrubbingPolicy = scrubbingPolicy;
+        this.index = index;
         this.common = new IndexingCommon(runner, recordStoreBuilder,
                 Collections.singletonList(index), recordTypes, configLoader, config,
                 trackProgress);
@@ -76,24 +78,16 @@ public class OnlineIndexScrubber implements AutoCloseable {
         common.close();
     }
 
-    private IndexingBase getScrubber(ScrubbingType type, AtomicLong count) {
-        switch (type) {
-            case DANGLING:
-                return new IndexingScrubDangling(common, OnlineIndexer.IndexingPolicy.DEFAULT, scrubbingPolicy, count);
-
-            case MISSING:
-                return new IndexingScrubMissing(common, OnlineIndexer.IndexingPolicy.DEFAULT, scrubbingPolicy, count);
-
-            default:
-                throw new MetaDataException("bad type");
-        }
+    private IndexingScrubberBase getScrubber(ScrubbingType type, AtomicLong count) {
+        IndexMaintainerRegistry registry = IndexMaintainerRegistryImpl.instance();
+        return registry.getIndexScrubber(index, type, common, OnlineIndexer.IndexingPolicy.DEFAULT, scrubbingPolicy, count);
     }
 
     @VisibleForTesting
     @Nonnull
     CompletableFuture<Void> scrubIndexAsync(ScrubbingType type, AtomicLong count) {
         return AsyncUtil.composeHandle(
-                getScrubber(type, count).buildIndexAsync(false, common.config.shouldUseSynchronizedSession()),
+                getScrubber(type, count).scrubIndexAsync(common.config.shouldUseSynchronizedSession()),
                 (ignore, ex) -> {
                     if (ex != null) {
                         throw FDBExceptions.wrapException(ex);

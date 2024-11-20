@@ -64,7 +64,7 @@ import java.util.stream.Collectors;
  *  This scrubber will scan the records and look for missing indexes.
  */
 @API(API.Status.INTERNAL)
-public class IndexingScrubMissing extends IndexingBase {
+public class IndexingScrubMissing extends IndexingScrubberBase {
     @Nonnull private static final Logger LOGGER = LoggerFactory.getLogger(IndexingScrubMissing.class);
     @Nonnull private static final IndexBuildProto.IndexBuildIndexingStamp myIndexingTypeStamp = compileIndexingTypeStamp();
 
@@ -77,10 +77,15 @@ public class IndexingScrubMissing extends IndexingBase {
                                 @Nonnull final OnlineIndexer.IndexingPolicy policy,
                                 @Nonnull final OnlineIndexScrubber.ScrubbingPolicy scrubbingPolicy,
                                 @Nonnull final AtomicLong missingCount) {
-        super(common, policy, true);
+        super(common, policy);
         this.scrubbingPolicy = scrubbingPolicy;
         this.logWarningCounter = scrubbingPolicy.getLogWarningsLimit();
         this.missingCount = missingCount;
+    }
+
+    @Override
+    public CompletableFuture<Void> scrubIndexAsync(boolean useSynchronizedSession) {
+        return buildIndexAsync(false, useSynchronizedSession);
     }
 
     @Override

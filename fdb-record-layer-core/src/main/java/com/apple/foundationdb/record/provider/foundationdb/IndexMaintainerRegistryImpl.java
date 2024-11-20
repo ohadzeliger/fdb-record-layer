@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nonnull;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A singleton {@link IndexMaintainerRegistry} that finds {@link IndexMaintainerFactory} classes in the classpath.
@@ -91,5 +92,19 @@ public class IndexMaintainerRegistryImpl implements IndexMaintainerRegistry {
             throw new MetaDataException("Unknown index type for " + state.index);
         }
         return factory.getIndexMaintainer(state);
+    }
+
+    @Override
+    public IndexingScrubberBase getIndexScrubber(@Nonnull Index index,
+                                                 @Nonnull final OnlineIndexScrubber.ScrubbingType type,
+                                                 @Nonnull final IndexingCommon common,
+                                                 @Nonnull final OnlineIndexer.IndexingPolicy policy,
+                                                 @Nonnull final OnlineIndexScrubber.ScrubbingPolicy scrubbingPolicy,
+                                                 @Nonnull final AtomicLong count) {
+        final IndexMaintainerFactory factory = registry.get(index.getType());
+        if (factory == null) {
+            throw new MetaDataException("Unknown index type for " + index);
+        }
+        return factory.getIndexScrubber(type, common, policy, scrubbingPolicy, count);
     }
 }

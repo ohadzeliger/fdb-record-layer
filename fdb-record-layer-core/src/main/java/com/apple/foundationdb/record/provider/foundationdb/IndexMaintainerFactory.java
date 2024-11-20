@@ -25,6 +25,7 @@ import com.apple.foundationdb.record.metadata.Index;
 import com.apple.foundationdb.record.metadata.IndexValidator;
 
 import javax.annotation.Nonnull;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A factory for {@link IndexMaintainer}.
@@ -68,4 +69,15 @@ public interface IndexMaintainerFactory {
      */
     @Nonnull
     IndexMaintainer getIndexMaintainer(@Nonnull IndexMaintainerState state);
+
+    /**
+     * Get a {@link IndexingScrubberBase} for the index.
+     */
+    default IndexingScrubberBase getIndexScrubber(@Nonnull final OnlineIndexScrubber.ScrubbingType type,
+                                                  @Nonnull final IndexingCommon common,
+                                                  @Nonnull final OnlineIndexer.IndexingPolicy policy,
+                                                  @Nonnull final OnlineIndexScrubber.ScrubbingPolicy scrubbingPolicy,
+                                                  @Nonnull final AtomicLong count) {
+        throw new UnsupportedOperationException("This index maintainer factory does not support scrubbing");
+    }
 }

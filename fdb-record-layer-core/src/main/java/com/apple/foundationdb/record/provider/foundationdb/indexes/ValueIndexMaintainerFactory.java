@@ -24,14 +24,22 @@ import com.apple.foundationdb.annotation.API;
 import com.apple.foundationdb.record.metadata.Index;
 import com.apple.foundationdb.record.metadata.IndexTypes;
 import com.apple.foundationdb.record.metadata.IndexValidator;
+import com.apple.foundationdb.record.metadata.MetaDataException;
 import com.apple.foundationdb.record.metadata.MetaDataValidator;
 import com.apple.foundationdb.record.provider.foundationdb.IndexMaintainer;
 import com.apple.foundationdb.record.provider.foundationdb.IndexMaintainerFactory;
 import com.apple.foundationdb.record.provider.foundationdb.IndexMaintainerState;
+import com.apple.foundationdb.record.provider.foundationdb.IndexingCommon;
+import com.apple.foundationdb.record.provider.foundationdb.IndexingScrubDangling;
+import com.apple.foundationdb.record.provider.foundationdb.IndexingScrubMissing;
+import com.apple.foundationdb.record.provider.foundationdb.IndexingScrubberBase;
+import com.apple.foundationdb.record.provider.foundationdb.OnlineIndexScrubber;
+import com.apple.foundationdb.record.provider.foundationdb.OnlineIndexer;
 import com.google.auto.service.AutoService;
 
 import javax.annotation.Nonnull;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A factory for {@link ValueIndexMaintainer} indexes.
@@ -64,5 +72,19 @@ public class ValueIndexMaintainerFactory implements IndexMaintainerFactory {
     @Nonnull
     public IndexMaintainer getIndexMaintainer(@Nonnull IndexMaintainerState state) {
         return new ValueIndexMaintainer(state);
+    }
+
+    @Override
+    public IndexingScrubberBase getIndexScrubber(@Nonnull final OnlineIndexScrubber.ScrubbingType type, @Nonnull final IndexingCommon common, @Nonnull final OnlineIndexer.IndexingPolicy policy, @Nonnull final OnlineIndexScrubber.ScrubbingPolicy scrubbingPolicy, @Nonnull final AtomicLong count) {
+        switch (type) {
+            case DANGLING:
+                return new IndexingScrubDangling(common, policy, scrubbingPolicy, count);
+
+            case MISSING:
+                return new IndexingScrubMissing(common, policy, scrubbingPolicy, count);
+
+            default:
+                throw new MetaDataException("bad type");
+        }
     }
 }

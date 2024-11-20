@@ -65,7 +65,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *  Support two scrubbers - detect missing and detect dangling index entries. Set by the policy.
  */
 @API(API.Status.INTERNAL)
-public class IndexingScrubDangling extends IndexingBase {
+public class IndexingScrubDangling extends IndexingScrubberBase {
     @Nonnull private static final Logger LOGGER = LoggerFactory.getLogger(IndexingScrubMissing.class);
     @Nonnull private static final IndexBuildProto.IndexBuildIndexingStamp myIndexingTypeStamp = compileIndexingTypeStamp();
 
@@ -78,10 +78,15 @@ public class IndexingScrubDangling extends IndexingBase {
                                  @Nonnull final OnlineIndexer.IndexingPolicy policy,
                                  @Nonnull final OnlineIndexScrubber.ScrubbingPolicy scrubbingPolicy,
                                  @Nonnull final AtomicLong danglingCount) {
-        super(common, policy, true);
+        super(common, policy);
         this.scrubbingPolicy = scrubbingPolicy;
         this.logWarningCounter = scrubbingPolicy.getLogWarningsLimit();
         this.danglingCount = danglingCount;
+    }
+
+    @Override
+    public CompletableFuture<Void> scrubIndexAsync(boolean useSynchronizedSession) {
+        return buildIndexAsync(false, useSynchronizedSession);
     }
 
     @Override
