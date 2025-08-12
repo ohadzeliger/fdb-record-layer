@@ -22,12 +22,21 @@ package com.apple.foundationdb.record.lucene.directory;
 
 import com.apple.foundationdb.async.AsyncUtil;
 import com.apple.foundationdb.record.RecordCoreArgumentException;
+import com.apple.foundationdb.record.RecordCursorResult;
+import com.apple.foundationdb.record.ScanProperties;
 import com.apple.foundationdb.record.lucene.LuceneConcurrency;
 import com.apple.foundationdb.record.lucene.LuceneEvents;
+import com.apple.foundationdb.record.lucene.codec.LuceneOptimizedFieldInfosFormat;
 import com.apple.foundationdb.record.provider.common.StoreTimer;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoreTimer;
+import com.apple.foundationdb.record.provider.foundationdb.cursors.SizeStatisticsCollectorCursor;
 import com.apple.test.Tags;
+import org.apache.lucene.index.DocValuesType;
+import org.apache.lucene.index.FieldInfo;
+import org.apache.lucene.index.FieldInfos;
+import org.apache.lucene.index.IndexOptions;
+import org.assertj.core.api.Assertions;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -39,6 +48,7 @@ import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
@@ -212,6 +222,59 @@ public class FDBDirectoryTest extends FDBDirectoryBaseTest {
             assertEquals(1, timer.getCount(LuceneEvents.Events.LUCENE_GET_FILE_LENGTH));
             assertEquals(1, timer.getCount(LuceneEvents.Waits.WAIT_LUCENE_FILE_LENGTH));
         }
+    }
+
+    @Test
+    public void testSequenceSubspaceSizes() throws Exception {
+        directory.getIncrement();
+        assertCalculatedSizes(FDBDirectory.LuceneSubspace.SEQUENCE.name());
+    }
+
+    @Test
+    public void testMetaSubspaceSizes() throws Exception {
+        long expectedSize = 20;
+        FDBLuceneFileReference reference = new FDBLuceneFileReference(1, expectedSize, expectedSize, 1024);
+        directory.writeFDBLuceneFileReference("test1", reference);
+        assertCalculatedSizes(FDBDirectory.LuceneSubspace.META.name());
+    }
+
+    @Test
+    public void testDataSubspaceSizes() throws Exception {
+        byte[] data = "test string for write".getBytes();
+        directory.writeData(2, 1, data);
+        assertCalculatedSizes(FDBDirectory.LuceneSubspace.DATA.name());
+    }
+
+    @Test
+    public void testFieldInfosSubspaceSizes() throws Exception {
+        final FieldInfo fieldInfo = new FieldInfo("name", 0, false, false, false,
+                IndexOptions.DOCS, DocValuesType.NUMERIC, 1, Map.of(), 0, 0, 0, false);
+        LuceneOptimizedFieldInfosFormat fieldInfosFormat = new LuceneOptimizedFieldInfosFormat();
+        final FieldInfos fieldInfos = new FieldInfos(new FieldInfo[] {fieldInfo});
+        fieldInfosFormat.write(directory, fieldInfos, "_0.fip");
+        assertCalculatedSizes("DataSubspace");
+    }
+
+    private void assertCalculatedSizes(final String SequenceSubspace) {
+        final Map<String, RecordCursorResult<SizeStatisticsCollectorCursor.SizeStatisticsResults>> results = directory.calculateSubspaceSizeAsync(null, ScanProperties.FORWARD_SCAN).join();
+        results.entrySet().forEach(entry -> {
+            SizeStatisticsCollectorCursor.SizeStatisticsResults sizeStats = entry.getValue().get();
+            if (entry.getKey().equals(SequenceSubspace)) {
+                // Affected entry should have some non-zero values
+                Assertions.assertThat(sizeStats.getKeyCount()).isEqualTo(1);
+                Assertions.assertThat(sizeStats.getKeySize()).isPositive();
+                Assertions.assertThat(sizeStats.getKeySize()).isEqualTo(sizeStats.getMaxKeySize());
+                Assertions.assertThat(sizeStats.getValueSize()).isPositive();
+                Assertions.assertThat(sizeStats.getValueSize()).isEqualTo(sizeStats.getMaxValueSize());
+            } else {
+                // all other entries should have zero values
+                Assertions.assertThat(sizeStats.getKeyCount()).isZero();
+                Assertions.assertThat(sizeStats.getKeySize()).isZero();
+                Assertions.assertThat(sizeStats.getMaxKeySize()).isZero();
+                Assertions.assertThat(sizeStats.getValueSize()).isZero();
+                Assertions.assertThat(sizeStats.getMaxValueSize()).isZero();
+            }
+        });
     }
 
     @SuppressWarnings("unused") // used to provide arguments for parameterized test

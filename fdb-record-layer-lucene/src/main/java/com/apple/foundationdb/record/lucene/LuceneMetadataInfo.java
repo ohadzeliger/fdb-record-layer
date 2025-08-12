@@ -62,10 +62,10 @@ public class LuceneMetadataInfo extends IndexOperationResult {
      */
     public static class LuceneInfo {
         private final int documentCount;
-        private final Collection<String> files;
+        private final Collection<LuceneFileInfo> files;
         private final int fieldInfoCount;
 
-        public LuceneInfo(final int documentCount, final Collection<String> files, final int fieldInfoCount) {
+        public LuceneInfo(final int documentCount, final Collection<LuceneFileInfo> files, final int fieldInfoCount) {
             this.documentCount = documentCount;
             this.files = files;
             this.fieldInfoCount = fieldInfoCount;
@@ -84,7 +84,7 @@ public class LuceneMetadataInfo extends IndexOperationResult {
          *
          * @return the list of files in the directory
          */
-        public Collection<String> getFiles() {
+        public Collection<LuceneFileInfo> getFiles() {
             return files;
         }
 
@@ -111,6 +111,30 @@ public class LuceneMetadataInfo extends IndexOperationResult {
         @Override
         public int hashCode() {
             return Objects.hash(documentCount, files, fieldInfoCount);
+        }
+    }
+
+    public static class LuceneFileInfo {
+        private String name;
+        private long id;
+        private long size;
+
+        public LuceneFileInfo(final String name, final long id, final long size) {
+            this.name = name;
+            this.id = id;
+            this.size = size;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public long getId() {
+            return id;
+        }
+
+        public long getSize() {
+            return size;
         }
     }
 }

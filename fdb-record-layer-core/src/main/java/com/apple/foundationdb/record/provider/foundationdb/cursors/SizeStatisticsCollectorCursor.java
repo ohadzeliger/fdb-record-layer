@@ -121,7 +121,7 @@ public class SizeStatisticsCollectorCursor implements RecordCursor<SizeStatistic
 
         //the final aggregated results were emitted on the last call so we are done aggregating the underlying cursor
         if (finalResultsEmitted) {
-            return CompletableFuture.completedFuture(RecordCursorResult.exhausted());
+            return CompletableFuture.completedFuture(RecordCursorResult.exhausted()); // TODO: this seems to be a bug as the continuation can't be parsed?
         }
 
         //if this cursor instance has previously hit a limit then it needs to be reconstituted with a continuation to advance aggregation
@@ -614,6 +614,16 @@ public class SizeStatisticsCollectorCursor implements RecordCursor<SizeStatistic
             return getProportion(0.95);
         }
 
+        public SizeStatisticsResults combine(@Nonnull final SizeStatisticsResults other) {
+            SizeStatisticsResults target = new SizeStatisticsResults();
+            target.setKeyCount(this.getKeyCount() + other.getKeyCount());
+            target.setKeySize(this.getKeySize() + other.getKeySize());
+            target.setMaxKeySize(Math.max(this.getMaxKeySize(), other.getMaxKeySize()));
+            target.setValueSize(this.getValueSize() + other.getValueSize());
+            target.setMaxValueSize(Math.max(this.getMaxValueSize(), other.getMaxValueSize()));
+            // target.setSizeBuckets(this.getSizeBuckets()); TODO
+            return target;
+        }
     }
 
 }

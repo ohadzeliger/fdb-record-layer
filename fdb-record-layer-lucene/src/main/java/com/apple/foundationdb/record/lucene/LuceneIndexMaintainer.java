@@ -31,6 +31,7 @@ import com.apple.foundationdb.record.RecordCoreArgumentException;
 import com.apple.foundationdb.record.RecordCoreException;
 import com.apple.foundationdb.record.RecordCursor;
 import com.apple.foundationdb.record.RecordCursorContinuation;
+import com.apple.foundationdb.record.RecordCursorResult;
 import com.apple.foundationdb.record.RecordCursorStartContinuation;
 import com.apple.foundationdb.record.ScanProperties;
 import com.apple.foundationdb.record.TupleRange;
@@ -59,6 +60,7 @@ import com.apple.foundationdb.record.provider.foundationdb.IndexOperation;
 import com.apple.foundationdb.record.provider.foundationdb.IndexOperationResult;
 import com.apple.foundationdb.record.provider.foundationdb.IndexScanBounds;
 import com.apple.foundationdb.record.provider.foundationdb.IndexScrubbingTools;
+import com.apple.foundationdb.record.provider.foundationdb.cursors.SizeStatisticsCollectorCursor;
 import com.apple.foundationdb.record.provider.foundationdb.indexes.InvalidIndexEntry;
 import com.apple.foundationdb.record.provider.foundationdb.indexes.StandardIndexMaintainer;
 import com.apple.foundationdb.record.query.QueryToKeyMatcher;
@@ -705,16 +707,35 @@ public class LuceneIndexMaintainer extends StandardIndexMaintainer {
             try (IndexReader indexReader = directoryManager.getIndexReader(groupingKey, partitionId)) {
                 final FDBDirectory directory = getDirectory(groupingKey, partitionId);
                 final CompletableFuture<Integer> fieldInfosFuture = directory.getFieldInfosCount();
-                return directory.listAllAsync()
-                        .thenCombine(fieldInfosFuture, (fileList, fieldInfosCount) ->
-                                new LuceneMetadataInfo.LuceneInfo(
-                                        indexReader.numDocs(),
-                                        fileList, fieldInfosCount));
+                return directory.getAllAsync()
+                        .thenCombine(fieldInfosFuture, (fileList, fieldInfosCount) -> {
+                            final List<LuceneMetadataInfo.LuceneFileInfo> fileInfos = fileList.entrySet().stream().map(entry -> new LuceneMetadataInfo.LuceneFileInfo(entry.getKey(), entry.getValue().getId(), entry.getValue().getSize())).collect(Collectors.toList());
+                            return new LuceneMetadataInfo.LuceneInfo(
+                                    indexReader.numDocs(),
+                                    fileInfos, fieldInfosCount);
+                        });
             }
         } catch (IOException e) {
             return CompletableFuture.failedFuture(e);
         }
     }
+
+    public CompletableFuture<Map<String, RecordCursorResult<SizeStatisticsCollectorCursor.SizeStatisticsResults>>> getSizeStatsPerSubspace(final Tuple groupingKey, final ScanProperties scanProperties) {
+        if (partitioner.isPartitioningEnabled()) {
+            return getSizeStatsPerSubspaceAllPartitions(groupingKey, scanProperties);
+        } else {
+            return getSizeStatsPerSubspace(groupingKey, null, scanProperties);
+        }
+    }
+
+    private CompletableFuture<Map<String, RecordCursorResult<SizeStatisticsCollectorCursor.SizeStatisticsResults>>> getSizeStatsPerSubspaceAllPartitions(final Tuple groupingKey, final ScanProperties scanProperties) {
+        return getDirectory(groupingKey, 0).calculateSubspaceSizeAsync(null, scanProperties);
+    }
+
+    private CompletableFuture<Map<String, RecordCursorResult<SizeStatisticsCollectorCursor.SizeStatisticsResults>>> getSizeStatsPerSubspace(final Tuple groupingKey, final Integer partitionId, final ScanProperties scanProperties) {
+        return getDirectory(groupingKey, partitionId).calculateSubspaceSizeAsync(null, scanProperties);
+    }
+
 
     @VisibleForTesting
     protected FDBDirectory getDirectory(@Nonnull Tuple groupingKey, @Nullable Integer partitionId) {

@@ -30,6 +30,9 @@ import com.apple.foundationdb.async.AsyncUtil;
 import com.apple.foundationdb.record.RecordCoreArgumentException;
 import com.apple.foundationdb.record.RecordCoreException;
 import com.apple.foundationdb.record.RecordCoreStorageException;
+import com.apple.foundationdb.record.RecordCursorContinuation;
+import com.apple.foundationdb.record.RecordCursorResult;
+import com.apple.foundationdb.record.ScanProperties;
 import com.apple.foundationdb.record.logging.CompletionExceptionLogHelper;
 import com.apple.foundationdb.record.logging.KeyValueLogMessage;
 import com.apple.foundationdb.record.logging.LogMessageKeys;
@@ -47,6 +50,7 @@ import com.apple.foundationdb.record.lucene.codec.LuceneOptimizedStoredFieldsFor
 import com.apple.foundationdb.record.lucene.codec.PrefetchableBufferedChecksumIndexInput;
 import com.apple.foundationdb.record.provider.common.StoreTimer;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
+import com.apple.foundationdb.record.provider.foundationdb.cursors.SizeStatisticsCollectorCursor;
 import com.apple.foundationdb.record.util.pair.ComparablePair;
 import com.apple.foundationdb.record.util.pair.NonnullPair;
 import com.apple.foundationdb.subspace.Subspace;
@@ -80,6 +84,7 @@ import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -92,6 +97,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
 
@@ -115,6 +121,9 @@ import static org.apache.lucene.codecs.lucene86.Lucene86SegmentInfoFormat.SI_EXT
 @API(API.Status.EXPERIMENTAL)
 @NotThreadSafe
 public class FDBDirectory extends Directory  {
+
+    public enum LuceneSubspace { SEQUENCE, META, DATA, PRIMARY_KEY, FIELD_INFOS, STORED_FIELDS, FILE_LOCK }
+
     private static final Logger LOGGER = LoggerFactory.getLogger(FDBDirectory.class);
     public static final int DEFAULT_BLOCK_SIZE = 1_024;
     public static final int DEFAULT_BLOCK_CACHE_MAXIMUM_SIZE = 1024;
@@ -184,6 +193,8 @@ public class FDBDirectory extends Directory  {
     @Nullable
     private LucenePrimaryKeySegmentIndex primaryKeySegmentIndex;
 
+    private Map<LuceneSubspace, Subspace> subspaces;
+
     @VisibleForTesting
     public FDBDirectory(@Nonnull Subspace subspace, @Nonnull FDBRecordContext context, @Nullable Map<String, String> indexOptions) {
         this(subspace, indexOptions, null, null, true, AgilityContext.nonAgile(context));
@@ -236,6 +247,16 @@ public class FDBDirectory extends Directory  {
         this.sharedCachePending = sharedCacheManager != null && sharedCacheKey != null;
         this.fieldInfosStorage = new FieldInfosStorage(this);
         this.deferDeleteToCompoundFile = deferDeleteToCompoundFile;
+        this.subspaces = Map.of(
+                LuceneSubspace.SEQUENCE, sequenceSubspace,
+                LuceneSubspace.META, metaSubspace,
+                LuceneSubspace.DATA, dataSubspace,
+                LuceneSubspace.PRIMARY_KEY, subspace.subspace(Tuple.from(PRIMARY_KEY_SUBSPACE)),
+                LuceneSubspace.FIELD_INFOS, fieldInfosSubspace,
+                LuceneSubspace.STORED_FIELDS, storedFieldsSubspace,
+                LuceneSubspace.FILE_LOCK, fileLockSubspace
+        );
+        LOGGER.info(getLogMessage("new FdbDirectory", "directory subspace", ByteArrayUtil2.loggable(subspace.pack())));
     }
 
     private void cacheRemovalCallback() {
@@ -427,8 +448,8 @@ public class FDBDirectory extends Directory  {
         final byte[] encodedBytes = Objects.requireNonNull(LuceneSerializer.encode(value, compressionEnabled, encryptionEnabled));
         //This may not be correct transactionally
         agilityContext.recordSize(LuceneEvents.SizeEvents.LUCENE_WRITE, encodedBytes.length);
-        if (LOGGER.isTraceEnabled()) {
-            LOGGER.trace(getLogMessage("Write lucene data",
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug(getLogMessage("Write lucene data",
                     LuceneLogMessageKeys.FILE_ID, id,
                     LuceneLogMessageKeys.BLOCK_NUMBER, block,
                     LuceneLogMessageKeys.DATA_SIZE, value.length,
@@ -591,6 +612,78 @@ public class FDBDirectory extends Directory  {
 
     public CompletableFuture<Collection<String>> listAllAsync() {
         return getFileReferenceCacheAsync().thenApply(references -> List.copyOf(references.keySet()));
+    }
+
+    public CompletableFuture<Map<String, FDBLuceneFileReference>> getAllAsync() {
+        return getFileReferenceCacheAsync();
+    }
+
+    public CompletableFuture<Map<String, RecordCursorResult<SizeStatisticsCollectorCursor.SizeStatisticsResults>>> calculateSubspaceSizeAsync(byte[] continuation, final ScanProperties scanProperties) {
+        Map<String, CompletableFuture<RecordCursorResult<SizeStatisticsCollectorCursor.SizeStatisticsResults>>> result = new HashMap<>(LuceneSubspace.values().length);
+        for (LuceneSubspace sub: LuceneSubspace.values()) {
+            result.put(sub.name(), calculateSubspaceSizeAsync(sub, continuation, scanProperties));
+        }
+        return CompletableFuture.allOf(result.values().toArray(CompletableFuture[]::new)).thenApply(ignore -> {
+            return result.entrySet().stream().collect(Collectors.toMap(entry -> entry.getKey(), entry -> entry.getValue().join())); // todo: verify is Done
+        });
+    }
+
+    public CompletableFuture<RecordCursorResult<SizeStatisticsCollectorCursor.SizeStatisticsResults>> calculateSubspaceSizeAsync(LuceneSubspace subspaceName, byte[] continuation, final ScanProperties scanProperties) {
+        Subspace spaceToScan = Objects.requireNonNull(subspaces.get(subspaceName));
+        SizeStatisticsCollectorCursor cursor = SizeStatisticsCollectorCursor.ofSubspace(spaceToScan, agilityContext.getCallerContext(), scanProperties, continuation);
+        return cursor.onNext();
+    }
+
+
+    public Map<String, CompletableFuture<SizeStatisticsCollectorCursor.SizeStatisticsResults>> calcSubspaceSizesASync() {
+        final Subspace sequenceSubspace = subspace.subspace(Tuple.from(SEQUENCE_SUBSPACE));
+        final Subspace primaryKeySubspace = subspace.subspace(Tuple.from(PRIMARY_KEY_SUBSPACE));
+        Map<String, CompletableFuture<SizeStatisticsCollectorCursor.SizeStatisticsResults>> result = new HashMap<>(7);
+        result.put("SequenceSubspace", calculateSubspaceSize(sequenceSubspace));
+        result.put("MetaSubspace", calculateSubspaceSize(metaSubspace));
+        result.put("DataSubspace", calculateSubspaceSize(dataSubspace));
+        result.put("PrimaryKeySubspace", calculateSubspaceSize(primaryKeySubspace));
+        result.put("FieldInfosSubspace", calculateSubspaceSize(fieldInfosSubspace));
+        result.put("StoredFieldsSubspace", calculateSubspaceSize(storedFieldsSubspace));
+        result.put("FileLockSubspace", calculateSubspaceSize(fileLockSubspace));
+
+        return result;
+    }
+
+    private CompletableFuture<SizeStatisticsCollectorCursor.SizeStatisticsResults> calculateSubspaceSize(final Subspace subspace) {
+        AtomicReference<SizeStatisticsCollectorCursor.SizeStatisticsResults> result = new AtomicReference<>();
+        AtomicReference<RecordCursorContinuation> continuation = new AtomicReference<>();
+        return AsyncUtil.whileTrue(() -> {
+            return calculateOneStatsGet(subspace, continuation, result);
+        }).thenApply(ignore -> {
+            return result.get();
+        }); // TODO: Add executor
+    }
+
+    private CompletableFuture<Boolean> calculateOneStatsGet(final Subspace subspace, final AtomicReference<RecordCursorContinuation> continuation, final AtomicReference<SizeStatisticsCollectorCursor.SizeStatisticsResults> result) {
+        agilityContext.flush(); // TODO: Need to find a better way to run the scan
+        final RecordCursorContinuation recordCursorContinuation = continuation.get();
+        final CompletableFuture<Void> apply = agilityContext.apply(context -> {
+            final byte[] bytes = (recordCursorContinuation == null) ? null : recordCursorContinuation.toBytes();
+            SizeStatisticsCollectorCursor cursor = SizeStatisticsCollectorCursor.ofSubspace(subspace, context, ScanProperties.FORWARD_SCAN, bytes);
+            return cursor.onNext().thenAccept(recordResult -> {
+                handleOneResult(continuation, result, recordResult);
+            });
+        });
+        agilityContext.flush(); // TODO: Need to find a better way to run the scan
+        return apply.thenApply(ignore -> !continuation.get().isEnd());
+    }
+
+    private static void handleOneResult(final AtomicReference<RecordCursorContinuation> continuation, final AtomicReference<SizeStatisticsCollectorCursor.SizeStatisticsResults> result, final RecordCursorResult<SizeStatisticsCollectorCursor.SizeStatisticsResults> recordResult) {
+        continuation.set(recordResult.getContinuation());
+        if (!recordResult.hasNext()) {
+            return;
+        }
+        if (result.get() == null) {
+            result.set(recordResult.get());
+        } else {
+            result.set(recordResult.get().combine(recordResult.get()));
+        }
     }
 
     @VisibleForTesting

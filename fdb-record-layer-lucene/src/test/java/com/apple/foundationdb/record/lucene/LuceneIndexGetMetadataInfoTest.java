@@ -72,7 +72,7 @@ public class LuceneIndexGetMetadataInfoTest extends FDBRecordStoreTestBase {
         final Set<Tuple> groupingKeys = isGrouped ? dataModel.groupingKeys() : Set.of(Tuple.from());
         for (final Tuple groupingKey : groupingKeys) {
             final LuceneMetadataInfo result = getLuceneMetadataInfo(justPartitionInfo, groupingKey, dataModel, null);
-            assertEquals(List.of(), result.getPartitionInfo());
+                assertEquals(List.of(), result.getPartitionInfo());
             if (justPartitionInfo) {
                 assertEquals(Map.of(), result.getLuceneInfo());
             } else {
