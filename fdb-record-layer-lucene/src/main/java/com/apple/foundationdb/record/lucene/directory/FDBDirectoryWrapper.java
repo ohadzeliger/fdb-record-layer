@@ -364,4 +364,8 @@ public class FDBDirectoryWrapper implements AutoCloseable {
     public void mergeIndex() throws IOException {
         getWriter().maybeMerge();
     }
+
+    protected IndexMaintainerState getState() {
+        return state;
+    }
 }

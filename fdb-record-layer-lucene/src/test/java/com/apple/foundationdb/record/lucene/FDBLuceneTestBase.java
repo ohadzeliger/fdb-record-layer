@@ -67,7 +67,7 @@ public abstract class FDBLuceneTestBase extends FDBRecordStoreTestBase {
     protected static final Index COMPLEX_PARTITIONED = complexPartitionedIndex(Map.of(
             IndexOptions.TEXT_TOKENIZER_NAME_OPTION, AllSuffixesTextTokenizer.NAME,
             INDEX_PARTITION_BY_FIELD_NAME, "timestamp",
-            INDEX_PARTITION_HIGH_WATERMARK, "10"));
+            INDEX_PARTITION_HIGH_WATERMARK, "1000"));
 
     protected static final Index COMPLEX_PARTITIONED_NOGROUP = complexPartitionedIndexNoGroup(Map.of(
             IndexOptions.TEXT_TOKENIZER_NAME_OPTION, AllSuffixesTextTokenizer.NAME,

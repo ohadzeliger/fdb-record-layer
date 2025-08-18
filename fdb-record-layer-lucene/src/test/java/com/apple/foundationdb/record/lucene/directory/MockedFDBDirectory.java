@@ -32,6 +32,7 @@ import javax.annotation.Nullable;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 import static com.apple.foundationdb.record.lucene.directory.InjectedFailureRepository.Methods.LUCENE_DELETE_FILE_INTERNAL;
@@ -50,13 +51,22 @@ import static com.apple.foundationdb.record.lucene.directory.InjectedFailureRepo
  */
 public class MockedFDBDirectory extends FDBDirectory {
     private InjectedFailureRepository injectedFailures;
+    private static boolean collectBlockRefCounts;
+    /**
+     * Map from directoryId to a block reference map.
+     * The directoryId identifies the directory globally (contains the grouping key and partition).
+     */
+    private static final Map<Tuple, LuceneDataBlockReferences> luceneDataBlockReferences = new ConcurrentHashMap<>();
+    private final Tuple directpryKey;
 
-    public MockedFDBDirectory(final Subspace subspace, final Map<String, String> options, final FDBDirectorySharedCacheManager sharedCacheManager, final Tuple sharedCacheKey, final boolean useCompoundFile, final AgilityContext agilityContext, final int blockCacheMaximumSize) {
+    public MockedFDBDirectory(final Subspace subspace, final Map<String, String> options, final FDBDirectorySharedCacheManager sharedCacheManager, final Tuple sharedCacheKey, final boolean useCompoundFile, final AgilityContext agilityContext, final int blockCacheMaximumSize, final Tuple directoryKey) {
         super(subspace, options, sharedCacheManager, sharedCacheKey, useCompoundFile, agilityContext, blockCacheMaximumSize);
+        this.directpryKey = directoryKey;
     }
 
     public MockedFDBDirectory(@Nonnull final Subspace subspace, @Nonnull final FDBRecordContext context, @Nullable final Map<String, String> indexOptions) {
         super(subspace, context, indexOptions);
+        this.directpryKey = null; // TODO
     }
 
     @Override
@@ -104,8 +114,13 @@ public class MockedFDBDirectory extends FDBDirectory {
 
     @Override
     protected boolean deleteFileInternal(@Nonnull final Map<String, FDBLuceneFileReference> cache, @Nonnull final String name) throws IOException {
+        FDBLuceneFileReference value = cache.get(name);
         injectedFailures.checkFailureForCoreException(LUCENE_DELETE_FILE_INTERNAL);
-        return super.deleteFileInternal(cache, name);
+        final boolean wasRemoved = super.deleteFileInternal(cache, name);
+        if (wasRemoved && collectBlockRefCounts) {
+            getCurrentLuceneDataBlockReferences().removeAllReferences(value.getId(), true);
+        }
+        return wasRemoved;
     }
 
     @Nullable
@@ -121,7 +136,31 @@ public class MockedFDBDirectory extends FDBDirectory {
         return super.getAllFieldInfosStream();
     }
 
+    @Override
+    public int writeData(final long id, final int block, @Nonnull final byte[] value) {
+        if (collectBlockRefCounts) {
+            getCurrentLuceneDataBlockReferences().addReference(id, block);
+        }
+        return super.writeData(id, block, value);
+    }
+
     public void setInjectedFailures(final InjectedFailureRepository injectedFailures) {
         this.injectedFailures = injectedFailures;
+    }
+
+    public static void startCollectingBlockRefCounts() {
+        collectBlockRefCounts = true;
+    }
+
+    public static void stopCollectingBlockRefCounts() {
+        collectBlockRefCounts = false;
+    }
+
+    public static Map<Tuple, LuceneDataBlockReferences> getAllDataBlockReferences() {
+        return luceneDataBlockReferences;
+    }
+
+    public LuceneDataBlockReferences getCurrentLuceneDataBlockReferences() {
+        return luceneDataBlockReferences.computeIfAbsent(directpryKey, key -> new LuceneDataBlockReferences());
     }
 }

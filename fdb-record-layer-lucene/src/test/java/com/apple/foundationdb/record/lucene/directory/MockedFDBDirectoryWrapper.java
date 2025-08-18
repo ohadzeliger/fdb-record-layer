@@ -53,7 +53,8 @@ public class MockedFDBDirectoryWrapper extends FDBDirectoryWrapper {
                                               final FDBDirectorySharedCacheManager sharedCacheManager,
                                               final Tuple sharedCacheKey, final boolean useCompoundFile,
                                               final AgilityContext agilityContext, final int blockCacheMaximumSize) {
+        final Tuple directoryKey = getState().indexSubspace.unpack(subspace.getKey());
         return new MockedFDBDirectory(subspace, options, sharedCacheManager, sharedCacheKey, useCompoundFile,
-                agilityContext, blockCacheMaximumSize);
+                agilityContext, blockCacheMaximumSize, directoryKey);
     }
 }

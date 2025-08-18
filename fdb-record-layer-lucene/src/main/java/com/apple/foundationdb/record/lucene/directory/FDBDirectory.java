@@ -448,8 +448,8 @@ public class FDBDirectory extends Directory  {
         final byte[] encodedBytes = Objects.requireNonNull(LuceneSerializer.encode(value, compressionEnabled, encryptionEnabled));
         //This may not be correct transactionally
         agilityContext.recordSize(LuceneEvents.SizeEvents.LUCENE_WRITE, encodedBytes.length);
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug(getLogMessage("Write lucene data",
+        if (LOGGER.isTraceEnabled()) {
+            LOGGER.trace(getLogMessage("Write lucene data",
                     LuceneLogMessageKeys.FILE_ID, id,
                     LuceneLogMessageKeys.BLOCK_NUMBER, block,
                     LuceneLogMessageKeys.DATA_SIZE, value.length,
@@ -835,7 +835,8 @@ public class FDBDirectory extends Directory  {
             agilityContext.clear(fieldInfosSubspace.pack(id));
         }
         // Nothing stored here currently.
-        agilityContext.clear(dataSubspace.subspace(Tuple.from(id)).range());
+//        agilityContext.clear(dataSubspace.subspace(Tuple.from(id)).range());
+        agilityContext.clear(dataSubspace.subspace(Tuple.from(value.getId())).range());
 
         // Delete K/V data: If the deferredDelete flag is on then delete all content from K/V subspace for the segment
         // (this is to support CFS deletion, that will be disjoint from the actual file deletion).

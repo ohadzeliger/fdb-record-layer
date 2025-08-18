@@ -20,6 +20,7 @@
 
 package com.apple.foundationdb.record.lucene.directory;
 
+import com.apple.foundationdb.KeyValue;
 import com.apple.foundationdb.async.AsyncUtil;
 import com.apple.foundationdb.record.RecordCoreArgumentException;
 import com.apple.foundationdb.record.RecordCursorResult;
@@ -31,6 +32,8 @@ import com.apple.foundationdb.record.provider.common.StoreTimer;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoreTimer;
 import com.apple.foundationdb.record.provider.foundationdb.cursors.SizeStatisticsCollectorCursor;
+import com.apple.foundationdb.record.provider.foundationdb.cursors.SizeStatisticsGroupedResults;
+import com.apple.foundationdb.record.provider.foundationdb.cursors.SizeStatisticsGroupingCursor;
 import com.apple.test.Tags;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.FieldInfo;
@@ -313,5 +316,76 @@ public class FDBDirectoryTest extends FDBDirectoryBaseTest {
     private void assertMetricCountAtMost(StoreTimer.Event metric, int maximumValue) {
         assertThat("Metric " + metric + " should be called at most " + maximumValue + " times",
                 timer.getCount(metric), lessThanOrEqualTo(maximumValue));
+    }
+
+    @Test
+    public void testDataBlocksProperlyCleared() throws Exception {
+        // Create a file with data blocks
+        long fileId = 1L;
+        FDBLuceneFileReference reference = new FDBLuceneFileReference(fileId, 100, 100, 1024);
+        String fileName = "test_file.dat";
+        // Write file reference and data blocks
+        directory.writeFDBLuceneFileReference(fileName, reference);
+        // Write data to blocks
+        byte[] testData1 = "test data block 1".getBytes();
+        byte[] testData2 = "test data block 2".getBytes();
+        directory.writeData(fileId, 1, testData1);
+        directory.writeData(fileId, 2, testData2);
+        
+        // Verify data blocks exist
+        final EmptyIndexInput emptyInput = new EmptyIndexInput("Test");
+        final byte[] block1 = directory.readBlock(emptyInput, fileName, directory.getFDBLuceneFileReferenceAsync(fileName), 1).join();
+        final byte[] block2 = directory.readBlock(emptyInput, fileName, directory.getFDBLuceneFileReferenceAsync(fileName), 2).join();
+        Assertions.assertThat(block1).isNotEmpty();
+        Assertions.assertThat(block2).isNotEmpty();
+
+        // Delete the file
+        directory.deleteFile(fileName);
+        
+        // Verify file is gone from directory listing
+        assertEquals(0, directory.listAll().length);
+        
+        // Shortcut to ensure the index is empty: No file references, no data blocks
+        final List<KeyValue> subspaceKeys = context.ensureActive().getRange(directory.getSubspace().range()).asList().join();
+        Assertions.assertThat(subspaceKeys).isEmpty();
+    }
+
+    @Test
+    public void testNoBlockLeaksWithMultipleFiles() throws Exception {
+        // Create multiple files with data blocks
+        long fileId1 = 100L;
+        long fileId2 = 200L;
+        FDBLuceneFileReference ref1 = new FDBLuceneFileReference(fileId1, 50, 50, 512);
+        FDBLuceneFileReference ref2 = new FDBLuceneFileReference(fileId2, 75, 75, 1024);
+        String fileName1 = "file1.dat";
+        String fileName2 = "file2.dat";
+        // Write file references and data
+        directory.writeFDBLuceneFileReference(fileName1, ref1);
+        directory.writeFDBLuceneFileReference(fileName2, ref2);
+        // Write data to blocks
+        byte[] data1 = "data for file 1".getBytes();
+        byte[] data2 = "data for file 2".getBytes();
+        directory.writeData(fileId1, 1, data1);
+        directory.writeData(fileId2, 1, data2);
+
+        // There should be one key for the file reference and one for the data block
+        final int keysPerFile = 2;
+        // Get initial data subspace size
+        final List<KeyValue> initialKeys = context.ensureActive().getRange(directory.getSubspace().range()).asList().join();
+        Assertions.assertThat(initialKeys).hasSize(2 * keysPerFile);
+
+        // Delete first file
+        directory.deleteFile(fileName1);
+        
+        // Check that data subspace size reduced appropriately
+        final List<KeyValue> afterDeleteKeys = context.ensureActive().getRange(directory.getSubspace().range()).asList().join();
+        Assertions.assertThat(afterDeleteKeys).hasSize(1 * keysPerFile);
+        
+        // Delete second file
+        directory.deleteFile(fileName2);
+        
+        // Check that data subspace is now empty
+        final List<KeyValue> finalKeys = context.ensureActive().getRange(directory.getSubspace().range()).asList().join();
+        Assertions.assertThat(finalKeys).isEmpty();
     }
 }

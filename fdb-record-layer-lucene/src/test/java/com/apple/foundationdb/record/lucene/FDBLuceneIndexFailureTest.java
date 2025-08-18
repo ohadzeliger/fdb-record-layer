@@ -21,9 +21,13 @@
 package com.apple.foundationdb.record.lucene;
 
 import com.apple.foundationdb.FDBException;
+import com.apple.foundationdb.async.AsyncUtil;
 import com.apple.foundationdb.record.RecordCoreException;
+import com.apple.foundationdb.record.RecordCursorResult;
 import com.apple.foundationdb.record.ScanProperties;
 import com.apple.foundationdb.record.lucene.directory.InjectedFailureRepository;
+import com.apple.foundationdb.record.lucene.directory.LuceneDataBlockReferences;
+import com.apple.foundationdb.record.lucene.directory.MockedFDBDirectory;
 import com.apple.foundationdb.record.lucene.directory.MockedLuceneIndexMaintainerFactory;
 import com.apple.foundationdb.record.lucene.directory.TestingIndexMaintainerRegistry;
 import com.apple.foundationdb.record.metadata.Index;
@@ -32,7 +36,10 @@ import com.apple.foundationdb.record.provider.foundationdb.FDBExceptions;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoreTimer;
+import com.apple.foundationdb.record.provider.foundationdb.IndexOperation;
 import com.apple.foundationdb.record.provider.foundationdb.OnlineIndexer;
+import com.apple.foundationdb.record.provider.foundationdb.cursors.SizeStatisticsGroupedResults;
+import com.apple.foundationdb.record.provider.foundationdb.cursors.SizeStatisticsGroupingCursor;
 import com.apple.foundationdb.record.provider.foundationdb.properties.RecordLayerPropertyStorage;
 import com.apple.foundationdb.record.query.plan.QueryPlanner;
 import com.apple.foundationdb.record.util.pair.Pair;
@@ -43,6 +50,7 @@ import com.apple.test.Tags;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -55,8 +63,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -80,6 +91,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  */
 @Tag(Tags.RequiresFDB)
 public class FDBLuceneIndexFailureTest extends FDBLuceneTestBase {
+    public static final long START_ID = 100;
+    public static final long NUM_DOCS = 100;
+
     private TestingIndexMaintainerRegistry registry;
     private InjectedFailureRepository injectedFailures;
 
@@ -116,6 +130,49 @@ public class FDBLuceneIndexFailureTest extends FDBLuceneTestBase {
                             context));
             assertNull(getCounter(context, FDBStoreTimer.Counts.LOAD_SCAN_ENTRY));
         }
+    }
+
+    @Test
+    void basicGroupedPartitionedBlockReferenceTest() {
+        final RecordLayerPropertyStorage contextProps = RecordLayerPropertyStorage.newBuilder()
+                .addProp(LuceneRecordContextProperties.LUCENE_USE_LEGACY_ASYNC_TO_SYNC, true)
+                .addProp(LuceneRecordContextProperties.LUCENE_REPARTITION_DOCUMENT_COUNT, 1000)
+                .build();
+        MockedFDBDirectory.startCollectingBlockRefCounts();
+
+        // First transaction - save some records
+        for (int i = 0; i < NUM_DOCS; i += 2) {
+            try (FDBRecordContext context = openContext(contextProps)) {
+                rebuildIndexMetaData(context, COMPLEX_DOC, COMPLEX_PARTITIONED);
+                recordStore.getIndexDeferredMaintenanceControl().setAutoMergeDuringCommit(false);
+
+                recordStore.saveRecord(createComplexDocument(i + START_ID, ENGINEER_JOKE, 1, Instant.now().toEpochMilli()));
+                recordStore.saveRecord(createComplexDocument(i + START_ID + 1, ENGINEER_JOKE, 2, Instant.now().toEpochMilli()));
+                context.commit();
+            }
+        }
+        printAllBlockInfos(contextProps, "After save: ");
+
+        // second transaction - update some records
+        for (int i = 0; i < NUM_DOCS; i += 2) {
+            try (FDBRecordContext context = openContext(contextProps)) {
+                rebuildIndexMetaData(context, COMPLEX_DOC, COMPLEX_PARTITIONED);
+                recordStore.getIndexDeferredMaintenanceControl().setAutoMergeDuringCommit(false);
+
+                recordStore.updateRecord(createComplexDocument(i + START_ID, "Hello World" + "-" + i, 1, Instant.now().toEpochMilli()));
+                recordStore.updateRecord(createComplexDocument(i + START_ID + 1, "Hello World" + "-" + i, 2, Instant.now().toEpochMilli()));
+                context.commit();
+            }
+        }
+        printAllBlockInfos(contextProps, "After update: ");
+
+        // second transaction - merge
+        try (FDBRecordContext context = openContext(contextProps)) {
+            rebuildIndexMetaData(context, COMPLEX_DOC, COMPLEX_PARTITIONED);
+
+            recordStore.getIndexMaintainer(COMPLEX_PARTITIONED).mergeIndex().join();
+        }
+        printAllBlockInfos(contextProps, "After merge: ");
     }
 
     @ParameterizedTest
@@ -586,6 +643,71 @@ public class FDBLuceneIndexFailureTest extends FDBLuceneTestBase {
                 indexBuilder.mergeIndex();
             }
         }
+    }
+
+    private void printAllBlockInfos(final RecordLayerPropertyStorage contextProps, final String message) {
+        try (FDBRecordContext context = openContext(contextProps)) {
+            rebuildIndexMetaData(context, COMPLEX_DOC, COMPLEX_PARTITIONED);
+
+            System.out.println(message + printAllFileInfoMetadata(Tuple.from(1L)));
+            System.out.println(message + printAllBlockReferences(Tuple.from(1L)));
+            System.out.println(message + printAllFileInfoMetadata(Tuple.from(2L)));
+            System.out.println(message + printAllBlockReferences(Tuple.from(2L)));
+            System.out.println(message + printAllStorageStats(context));
+        }
+    }
+
+    private String printAllFileInfoMetadata(final Tuple groupingKey) {
+        final IndexOperation indexOperation = new LuceneGetMetadataInfo(groupingKey, null, false);
+        final LuceneMetadataInfo info = (LuceneMetadataInfo)recordStore.getIndexMaintainer(COMPLEX_PARTITIONED).performOperation(indexOperation).join();
+        StringBuffer result = new StringBuffer("LuceneMetadataInfo: ")
+                .append("GroupingKey: ").append(groupingKey);
+        info.getLuceneInfo().forEach((partition, luceneInfo) -> {
+            result.append("\n    partition: ").append(partition);
+            result.append(" info: ");
+            luceneInfo.getFiles().forEach(fileInfo -> result.append(fileInfo.getId()).append("/").append(fileInfo.getName()).append(" "));
+        });
+        return result.toString();
+    }
+
+    private String printAllBlockReferences(Tuple groupingKey) {
+        StringBuffer result = new StringBuffer("Block References: ")
+                .append("GroupingKey: ").append(groupingKey);
+        final Map<Tuple, LuceneDataBlockReferences> allDataBlockReferences = MockedFDBDirectory.getAllDataBlockReferences();
+        allDataBlockReferences.entrySet().stream()
+                // the first int in the Tuple is the Grouping key
+                .filter(entry -> Objects.equals(entry.getKey().get(0), groupingKey.get(0)))
+                .forEach(entry -> {
+                    // The remaining parts of the Tuple are the partition ID
+                    result.append("\n   partition: ").append(entry.getKey().popFront()).append(" ")
+                            .append(entry.getValue().toString());
+                });
+        return result.toString();
+    }
+
+    private String printAllStorageStats(final FDBRecordContext context) {
+        StringBuffer result = new StringBuffer(" Storage Stats:\n");
+        AtomicReference<byte[]> continuation = new AtomicReference<>(null);
+        AsyncUtil.whileTrue(() -> {
+            final SizeStatisticsGroupingCursor cursor = SizeStatisticsGroupingCursor.ofIndex(recordStore, COMPLEX_PARTITIONED, context, ScanProperties.FORWARD_SCAN, continuation.get(), 5);
+            return cursor.onNext().thenApply(cursorResult -> {
+                if (cursorResult.hasNext()) {
+                    result.append(toString(cursorResult.get()));
+                }
+                continuation.set(cursorResult.getContinuation().toBytes());
+                return !cursorResult.getContinuation().isEnd();
+            });
+        }).join();
+        return result.toString();
+    }
+
+    private String toString(final SizeStatisticsGroupedResults stats) {
+        StringBuffer result = new StringBuffer("AggregationKey:").append(stats.getAggregationKey());
+        result.append(" KeyCount: ").append(stats.getStats().getKeyCount())
+                .append(" KeySize: ").append(stats.getStats().getKeySize())
+                .append(" ValueSize: ").append(stats.getStats().getValueSize())
+                .append("\n");
+        return result.toString();
     }
 
     private class UnknownRecordCoreException extends RecordCoreException {
