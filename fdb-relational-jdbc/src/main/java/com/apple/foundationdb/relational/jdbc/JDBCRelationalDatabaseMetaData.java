@@ -36,6 +36,9 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 
 class JDBCRelationalDatabaseMetaData implements RelationalDatabaseMetaData {
+    static final int DEFAULT_MAJOR_VERSION = 0;
+    static final int DEFAULT_MINOR_VERSION = 0;
+
     private final DatabaseMetaDataResponse pbDatabaseMetaDataResponse;
     private final RelationalConnection connection;
 
@@ -160,19 +163,19 @@ class JDBCRelationalDatabaseMetaData implements RelationalDatabaseMetaData {
 
     @Override
     public int getDatabaseMajorVersion() throws SQLException {
-        try {
-            return BuildVersion.getInstance().getMajorVersion(getDatabaseProductVersion());
-        } catch (RelationalException e) {
-            throw e.toSqlException();
+        if (pbDatabaseMetaDataResponse.hasDatabaseMajorVersion()) {
+            return pbDatabaseMetaDataResponse.getDatabaseMajorVersion();
+        } else {
+            return DEFAULT_MAJOR_VERSION;
         }
     }
 
     @Override
     public int getDatabaseMinorVersion() throws SQLException {
-        try {
-            return BuildVersion.getInstance().getMinorVersion(getDatabaseProductVersion());
-        } catch (RelationalException e) {
-            throw e.toSqlException();
+        if (pbDatabaseMetaDataResponse.hasDatabaseMinorVersion()) {
+            return pbDatabaseMetaDataResponse.getDatabaseMinorVersion();
+        } else {
+            return DEFAULT_MINOR_VERSION;
         }
     }
 

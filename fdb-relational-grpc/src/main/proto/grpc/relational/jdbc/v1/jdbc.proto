@@ -220,6 +220,8 @@ message DatabaseMetaDataRequest {
 message DatabaseMetaDataResponse {
   string url = 1;
   string database_product_version = 2;
+  optional int32 database_major_version = 3;
+  optional int32 database_minor_version = 4;
 
       // From https://docs.oracle.com/en/java/javase/12/docs/api/java.sql/java/sql/DatabaseMetaData.html
       // 

@@ -22,6 +22,7 @@ package com.apple.foundationdb.relational.server.jdbc.v1;
 
 import com.apple.foundationdb.annotation.API;
 import com.apple.foundationdb.relational.api.RelationalResultSet;
+import com.apple.foundationdb.relational.api.exceptions.RelationalException;
 import com.apple.foundationdb.relational.jdbc.TypeConversion;
 import com.apple.foundationdb.relational.jdbc.grpc.GrpcSQLExceptionUtil;
 import com.apple.foundationdb.relational.jdbc.grpc.v1.DatabaseMetaDataRequest;
@@ -70,11 +71,20 @@ public class JDBCService extends JDBCServiceGrpc.JDBCServiceImplBase {
         // implementation is needed on the JDBC client-side. Here we are passing the client info
         // that can be used on the client-side in its implementation of RelationalDatabaseMetaData.
         // We'll pull from wherever we need to.
-        DatabaseMetaDataResponse databaseMetaDataResponse = DatabaseMetaDataResponse.newBuilder()
+        DatabaseMetaDataResponse.Builder databaseMetaDataResponse = DatabaseMetaDataResponse.newBuilder()
                 .setDatabaseProductVersion(BuildVersion.getInstance().getVersion())
-                .setUrl(BuildVersion.getInstance().getURL())
-                .build();
-        responseObserver.onNext(databaseMetaDataResponse);
+                .setUrl(BuildVersion.getInstance().getURL());
+        try {
+            databaseMetaDataResponse.setDatabaseMajorVersion(BuildVersion.getInstance().getMajorVersion());
+        } catch (RelationalException e) {
+            // Do nothing - don't set the version if cannot
+        }
+        try {
+            databaseMetaDataResponse.setDatabaseMinorVersion(BuildVersion.getInstance().getMinorVersion());
+        } catch (RelationalException e) {
+            // Do nothing - don't set the version if cannot
+        }
+        responseObserver.onNext(databaseMetaDataResponse.build());
         responseObserver.onCompleted();
     }
 
