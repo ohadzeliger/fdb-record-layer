@@ -45,6 +45,7 @@ import com.apple.foundationdb.record.locking.LockIdentifier;
 import com.apple.foundationdb.record.logging.KeyValueLogMessage;
 import com.apple.foundationdb.record.logging.LogMessageKeys;
 import com.apple.foundationdb.record.lucene.codec.LazyOpener;
+import com.apple.foundationdb.record.lucene.directory.FDBDirectory;
 import com.apple.foundationdb.record.lucene.directory.FDBDirectoryManager;
 import com.apple.foundationdb.record.metadata.Key;
 import com.apple.foundationdb.record.metadata.RecordType;
@@ -66,9 +67,11 @@ import com.apple.foundationdb.subspace.Subspace;
 import com.apple.foundationdb.tuple.ByteArrayUtil;
 import com.apple.foundationdb.tuple.Tuple;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Functions;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
+import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.Query;
@@ -87,6 +90,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -106,6 +110,7 @@ public class LucenePartitioner {
     private static final ConcurrentHashMap<String, KeyExpression> partitioningKeyExpressionCache = new ConcurrentHashMap<>();
     public static final int PARTITION_META_SUBSPACE = 0;
     public static final int PARTITION_DATA_SUBSPACE = 1;
+    public static final int BUFFER_PARITTION_ID = -1;
     private final IndexMaintainerState state;
     private final boolean partitioningEnabled;
     private final String partitionFieldNameInLucene;
@@ -493,30 +498,80 @@ public class LucenePartitioner {
     private CompletableFuture<Integer> addToAndSavePartitionMetadata(@Nonnull final Tuple groupingKey,
                                                                      @Nonnull final Tuple partitioningKey,
                                                                      @Nullable final Integer assignedPartitionIdOverride) {
-        return state.context.doWithWriteLock(new LockIdentifier(partitionMetadataSubspace(groupingKey)),
-                () -> {
-                    final CompletableFuture<LucenePartitionInfoProto.LucenePartitionInfo> assignmentFuture;
-                    if (assignedPartitionIdOverride != null) {
-                        assignmentFuture = getPartitionMetaInfoById(assignedPartitionIdOverride, groupingKey);
+        return state.context.doWithWriteLock(
+            new LockIdentifier(partitionMetadataSubspace(groupingKey)),
+            () -> {
+                return isAnyPartitionLocked(groupingKey).thenCompose(partitionLocked -> {
+                    if (Boolean.TRUE.equals(partitionLocked)) {
+                        // If any partition is locked, route all traffic to the buffer partition
+                        return CompletableFuture.completedFuture(BUFFER_PARITTION_ID);
                     } else {
-                        assignmentFuture = getOrCreatePartitionInfo(groupingKey, partitioningKey);
+                        return findPartitionUpdateMetadata(groupingKey, partitioningKey, assignedPartitionIdOverride);
                     }
-                    return assignmentFuture.thenApply(assignedPartition -> {
-                        // assignedPartition is not null, since a new one is created by the previous call if none exist
-                        LucenePartitionInfoProto.LucenePartitionInfo.Builder builder = Objects.requireNonNull(assignedPartition).toBuilder();
-                        builder.setCount(assignedPartition.getCount() + 1);
-                        if (isOlderThan(partitioningKey, assignedPartition)) {
-                            // clear the previous key
-                            state.context.ensureActive().clear(partitionMetadataKeyFromPartitioningValue(groupingKey, getPartitionKey(assignedPartition)));
-                            builder.setFrom(ByteString.copyFrom(partitioningKey.pack()));
-                        }
-                        if (isNewerThan(partitioningKey, assignedPartition)) {
-                            builder.setTo(ByteString.copyFrom(partitioningKey.pack()));
-                        }
-                        savePartitionMetadata(groupingKey, builder);
-                        return assignedPartition.getId();
-                    });
                 });
+            });
+    }
+
+    private CompletableFuture<Integer> findPartitionUpdateMetadata(final @Nonnull Tuple groupingKey, final @Nonnull Tuple partitioningKey, final @Nullable Integer assignedPartitionIdOverride) {
+        final CompletableFuture<LucenePartitionInfoProto.LucenePartitionInfo> assignmentFuture;
+        if (assignedPartitionIdOverride != null) {
+            assignmentFuture = getPartitionMetaInfoById(assignedPartitionIdOverride, groupingKey);
+        } else {
+            assignmentFuture = getOrCreatePartitionInfo(groupingKey, partitioningKey);
+        }
+        return assignmentFuture.thenApply(assignedPartition -> {
+            // assignedPartition is not null, since a new one is created by the previous call if none exist
+            LucenePartitionInfoProto.LucenePartitionInfo.Builder builder = Objects.requireNonNull(assignedPartition).toBuilder();
+            builder.setCount(assignedPartition.getCount() + 1);
+            if (isOlderThan(partitioningKey, assignedPartition)) {
+                // clear the previous key
+                state.context.ensureActive().clear(partitionMetadataKeyFromPartitioningValue(groupingKey, getPartitionKey(assignedPartition)));
+                builder.setFrom(ByteString.copyFrom(partitioningKey.pack()));
+            }
+            if (isNewerThan(partitioningKey, assignedPartition)) {
+                builder.setTo(ByteString.copyFrom(partitioningKey.pack()));
+            }
+            savePartitionMetadata(groupingKey, builder);
+            return assignedPartition.getId();
+        });
+    }
+
+    private CompletableFuture<Boolean> isAnyPartitionLocked(final Tuple groupingKey) {
+        return getAllPartitionMetaInfo(groupingKey).thenCompose(metaInfos -> {
+            if (metaInfos.isEmpty()) {
+                return CompletableFuture.completedFuture(false);
+            }
+
+            List<CompletableFuture<Boolean>> allLockFutures = metaInfos.stream()
+                    .map(partitionInfo -> isPartitionLocked(groupingKey, partitionInfo))
+                    .collect(Collectors.toList());
+
+            return AsyncUtil.getAll(allLockFutures).thenApply(allLocks -> allLocks.stream().anyMatch(locked -> locked));
+        });
+    }
+
+    private CompletableFuture<Boolean> isPartitionLocked(Tuple groupingKey, LucenePartitionInfoProto.LucenePartitionInfo partitionInfo) {
+        Tuple lockPath = groupingKey
+                .add(PARTITION_DATA_SUBSPACE)
+                .add(partitionInfo.getId())
+                // TODO: this should be done by FdbDirectory
+                .add(FDBDirectory.FILE_LOCK_SUBSPACE)
+                .add(IndexWriter.WRITE_LOCK_NAME);  // "write.lock"
+        byte[] lockKey = state.indexSubspace.pack(lockPath);
+
+        return state.context.ensureActive().get(lockKey)
+                .thenApply(lockValue -> {
+                    if (lockValue == null) {
+                        return false;
+                    }
+                    return isLockValid(lockValue);
+                });
+
+    }
+
+    private Boolean isLockValid(final byte[] lockValue) {
+        // TODO
+        return true;
     }
 
     /**
