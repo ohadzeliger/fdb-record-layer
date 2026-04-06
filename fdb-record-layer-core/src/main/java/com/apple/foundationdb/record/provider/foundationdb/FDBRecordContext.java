@@ -48,6 +48,7 @@ import com.apple.foundationdb.record.util.pair.NonnullPair;
 import com.apple.foundationdb.system.SystemKeyspace;
 import com.apple.foundationdb.tuple.ByteArrayUtil;
 import com.apple.foundationdb.tuple.ByteArrayUtil2;
+import com.apple.foundationdb.util.CallbackUtils;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Utf8;
@@ -1045,26 +1046,36 @@ public class FDBRecordContext extends FDBTransactionContext implements AutoClose
 
     @Nonnull
     private CompletableFuture<Void> runPostCommits() {
-        return runPostCommits(postCommits);
+        synchronized (postCommits) {
+            return runPostCommits(postCommits);
+        }
     }
 
     @Nonnull
     private CompletableFuture<Void> runPostClose() {
-        return runPostCommits(postClose);
+        synchronized (postClose) {
+            return runPostCommits(postClose);
+        }
     }
 
     @Nonnull
     private CompletableFuture<Void> runPostCommits(Map<String, PostCommit> hooksToRun) {
-        synchronized (hooksToRun) {
-            if (hooksToRun.isEmpty()) {
-                return AsyncUtil.DONE;
-            }
-            List<CompletableFuture<Void>> work = hooksToRun.values().stream()
-                    .map(PostCommit::get)
-                    .collect(Collectors.toList());
-            hooksToRun.clear();
-            return AsyncUtil.whenAll(work);
+        if (hooksToRun.isEmpty()) {
+            return AsyncUtil.DONE;
         }
+        try {
+            List<Supplier<CompletableFuture<Void>>> callbacks = hooksToRun.values().stream()
+                    .map(this::postCommitCallback)
+                    .collect(Collectors.toList());
+            // This would ensure best-effort in calling all suppliers and waiting for all the futures
+            return CallbackUtils.invokeAllFutures(callbacks);
+        } finally {
+            hooksToRun.clear();
+        }
+    }
+
+    private Supplier<CompletableFuture<Void>> postCommitCallback(PostCommit pc) {
+        return pc::get;
     }
 
     private void checkCommitHookName(@Nonnull String name) {

@@ -1,9 +1,9 @@
 /*
- * CloseException.java
+ * CallbackException.java
  *
  * This source file is part of the FoundationDB open source project
  *
- * Copyright 2015-2025 Apple Inc. and the FoundationDB project authors
+ * Copyright 2015-2026 Apple Inc. and the FoundationDB project authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,14 +20,16 @@
 
 package com.apple.foundationdb.util;
 
+import java.util.List;
+
 /**
- * Exception thrown when the {@link CloseableUtils#closeAll} method catches an exception.
- * This exception will have the {@code cause} set to the first exception thrown during {@code closeAll} and any further
+ * Exception thrown when the {@link CallbackUtils#invokeAll(List)} method catches an exception.
+ * This exception will have the {@code cause} set to the first exception thrown during {@code invokeAll} and any further
  * exception thrown will be added as {@code Suppressed}.
  */
 @SuppressWarnings("serial")
-public class CloseException extends RuntimeException {
-    public CloseException(final Throwable cause) {
+public class CallbackException extends RuntimeException {
+    public CallbackException(final Throwable cause) {
         super(cause);
     }
 }
